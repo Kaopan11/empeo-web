@@ -3,6 +3,7 @@ export type Actor = {
   name: string;
   role: "HR" | "Manager" | "Employee";
   initials: string;
+  department: string;
 };
 
 export const ACTORS: Actor[] = [
@@ -11,18 +12,28 @@ export const ACTORS: Actor[] = [
     name: "Nicha",
     role: "HR",
     initials: "NI",
+    department: "People Ops",
   },
   {
     id: "a1000000-0000-4000-8000-000000000002",
     name: "Somchai",
     role: "Manager",
     initials: "SO",
+    department: "Engineering",
+  },
+  {
+    id: "a1000000-0000-4000-8000-000000000003",
+    name: "Wichai",
+    role: "Manager",
+    initials: "WI",
+    department: "Sales",
   },
   {
     id: "a1000000-0000-4000-8000-000000000011",
     name: "Alice",
     role: "Employee",
     initials: "AL",
+    department: "Engineering",
   },
 ];
 
