@@ -1,6 +1,7 @@
 "use client";
 
 import { ChevronDownIcon } from "lucide-react";
+import { useRouter } from "next/navigation";
 import {
   createContext,
   useContext,
@@ -52,8 +53,16 @@ function RoleSwitcherProvider({ children }: { children: ReactNode }) {
   );
 }
 
+function pageFor(role: Actor["role"]) {
+  if (role === "HR") return "/hr";
+  if (role === "Employee") return "/employee";
+  return "/manager";
+}
+
 function Header() {
+  const router = useRouter();
   const { actor, select } = useRoleSwitcher();
+  const sharedRole = ACTORS.filter((person) => person.role === actor.role).length > 1;
 
   return (
     <header className="border-b border-[#e5e5e5] bg-white/95 backdrop-blur-sm">
@@ -82,15 +91,18 @@ function Header() {
             Cycle active
           </div>
           <DropdownMenu>
-            <DropdownMenuTrigger className="flex h-8 w-47.5 items-center justify-between rounded-[10px] border border-[#e5e5e5]/70 bg-white px-2.5 text-xs font-normal text-[#0a0a0a] shadow-sm outline-none">
-              {actor.role}
+            <DropdownMenuTrigger className="flex h-8 w-56 cursor-pointer items-center justify-between rounded-[10px] border border-[#e5e5e5]/70 bg-white px-2.5 text-xs font-normal text-[#0a0a0a] shadow-sm outline-none">
+              {sharedRole ? `${actor.role} · ${actor.name}` : actor.role}
               <ChevronDownIcon className="size-4 text-[#737373]" />
             </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="w-47.5">
+            <DropdownMenuContent align="end" className="w-56">
               {ACTORS.map((option) => (
                 <DropdownMenuItem
                   key={option.id}
-                  onClick={() => select(option.id)}
+                  onClick={() => {
+                    select(option.id);
+                    router.push(pageFor(option.role));
+                  }}
                 >
                   {option.role} · {option.name}
                 </DropdownMenuItem>
