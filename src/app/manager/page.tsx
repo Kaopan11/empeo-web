@@ -3,31 +3,46 @@
 import { LayoutGrid } from "lucide-react";
 import { zodResolver } from "@hookform/resolvers/zod";
 import axios from "axios";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Controller, useForm } from "react-hook-form";
 import { Button } from "@/components/ui/button";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Textarea } from "@/components/ui/textarea";
 import {
   CRITERIA,
+  draftEvaluationSchema,
   evaluationSchema,
   isLenient,
   type EvaluationInput,
 } from "@/lib/evaluation-form";
 import { api } from "@/lib/api";
+import {
+  apiBaseUrl,
+  saveEvaluation,
+  submitEvaluation,
+} from "@/lib/evaluations-api";
 import { useRoleSwitcher } from "@/components/app-shell";
+import type { EvaluationStatus, TeamEvaluations, TeamMember } from "@/types";
 
-const STATUS_LABEL = {
+const STATUS_LABEL: Record<EvaluationStatus, string> = {
   PENDING: "Pending",
   DRAFT: "Draft",
   SUBMITTED: "Submitted",
-} as const;
-
-type TeamMember = {
-  userId: string;
-  name: string;
-  status: "PENDING" | "DRAFT" | "SUBMITTED";
+  OVERDUE: "Overdue",
 };
+
+function canEditMember(member: TeamMember | null) {
+  return Boolean(
+    member?.evaluationId &&
+      (member.status === "PENDING" || member.status === "DRAFT"),
+  );
+}
+
+function apiErrorMessage(error: unknown, fallback: string) {
+  return axios.isAxiosError(error)
+    ? String(error.response?.data?.error ?? error.message)
+    : fallback;
+}
 
 export default function ManagerPage() {
   const { actor } = useRoleSwitcher();
@@ -35,39 +50,106 @@ export default function ManagerPage() {
   const [member, setMember] = useState<TeamMember | null>(null);
   const [loadError, setLoadError] = useState("");
   const [notice, setNotice] = useState("");
+  const [saving, setSaving] = useState(false);
   const form = useForm<EvaluationInput>({
     resolver: zodResolver(evaluationSchema),
     defaultValues: { technical: "", collaboration: "", feedback: "" },
   });
   const scores = form.watch(["technical", "collaboration"]);
   const submitted = members.filter((person) => person.status === "SUBMITTED").length;
+  const canWrite = canEditMember(member);
+  const selectedUserId = useRef<string | null>(null);
+
+  const applyTeam = useCallback((teamMembers: TeamMember[], keepUserId?: string | null) => {
+    setMembers(teamMembers);
+    const targetId = keepUserId ?? selectedUserId.current ?? teamMembers[0]?.userId ?? null;
+    const next =
+      teamMembers.find((person) => person.userId === targetId) ??
+      teamMembers[0] ??
+      null;
+    setMember(next);
+    selectedUserId.current = next?.userId ?? null;
+  }, []);
+
+  const fetchTeam = useCallback(
+    async (managerId: string, keepUserId?: string | null) => {
+      const response = await api.get<TeamEvaluations>(
+        `${apiBaseUrl()}/api/evaluations/team`,
+        { params: { managerId } },
+      );
+      applyTeam(response.data.members, keepUserId);
+      setLoadError("");
+    },
+    [applyTeam],
+  );
 
   useEffect(() => {
     let ignore = false;
     setMembers([]);
     setMember(null);
     setLoadError("");
-    api
-      .get<{ members: TeamMember[] }>(
-        "http://localhost:4000/api/evaluations/team",
-        { params: { managerId: actor.id } },
-      )
-      .then((response) => {
-        if (ignore) return;
-        setMembers(response.data.members);
-        setMember(response.data.members[0] ?? null);
-      })
+    setNotice("");
+    selectedUserId.current = null;
+    fetchTeam(actor.id)
       .catch((error: unknown) => {
         if (ignore) return;
-        const message = axios.isAxiosError(error)
-          ? String(error.response?.data?.error ?? error.message)
-          : "Could not load the team";
-        setLoadError(message);
+        setLoadError(apiErrorMessage(error, "Could not load the team"));
       });
+    const timer = window.setInterval(() => {
+      fetchTeam(actor.id).catch(() => {
+        /* keep last good team list on poll errors */
+      });
+    }, 60_000);
     return () => {
       ignore = true;
+      window.clearInterval(timer);
     };
-  }, [actor.id]);
+  }, [actor.id, fetchTeam]);
+
+  const saveDraft = async () => {
+    if (!member?.evaluationId || !canWrite) {
+      return;
+    }
+    const parsed = draftEvaluationSchema.safeParse(form.getValues());
+    if (!parsed.success) {
+      setNotice("Select ratings from 1 to 5 for both criteria");
+      return;
+    }
+    setSaving(true);
+    setNotice("");
+    try {
+      await saveEvaluation(member.evaluationId, parsed.data);
+      await fetchTeam(actor.id, member.userId);
+      setNotice("Draft saved");
+    } catch (error: unknown) {
+      setNotice(apiErrorMessage(error, "Could not save draft"));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const submitReview = async (values: EvaluationInput) => {
+    if (!member?.evaluationId || !canWrite) {
+      return;
+    }
+    setSaving(true);
+    setNotice("");
+    try {
+      await submitEvaluation(member.evaluationId, values);
+      await fetchTeam(actor.id, member.userId);
+      setNotice("Evaluation submitted");
+    } catch (error: unknown) {
+      if (axios.isAxiosError(error) && error.response?.status === 409) {
+        const message = String(error.response?.data?.error ?? "");
+        if (message.includes("already submitted")) {
+          await fetchTeam(actor.id, member.userId);
+        }
+      }
+      setNotice(apiErrorMessage(error, "Could not submit evaluation"));
+    } finally {
+      setSaving(false);
+    }
+  };
 
   return (
     <main className="flex-1 bg-[#fff7ed]/20 px-8 py-8">
@@ -115,7 +197,12 @@ export default function ManagerPage() {
                   <button
                     key={person.userId}
                     type="button"
-                    onClick={() => setMember(person)}
+                    onClick={() => {
+                      selectedUserId.current = person.userId;
+                      setMember(person);
+                      setNotice("");
+                      form.reset({ technical: "", collaboration: "", feedback: "" });
+                    }}
                     className={`flex h-15.5 w-full cursor-pointer items-center gap-3 rounded-[14px] px-3 text-left ${selected ? "bg-[#fff7ed] shadow-[0px_0px_0px_1px_#ffd6a7]" : ""}`}
                   >
                     <span className="flex size-9 items-center justify-center rounded-full border border-[#e5e5e5] bg-[#f5f5f5] text-xs font-semibold text-[#737373]">
@@ -160,10 +247,8 @@ export default function ManagerPage() {
             {member ? STATUS_LABEL[member.status] : "—"}
           </span>
         </div>
-        <form
-          className="mt-4"
-          onSubmit={form.handleSubmit(() => setNotice("ผ่านการตรวจแล้ว"))}
-        >
+        <fieldset disabled={!canWrite} className="mt-4 border-0 p-0 disabled:opacity-60">
+        <form onSubmit={form.handleSubmit(submitReview)}>
           <div className="flex flex-col gap-7 px-4">
             {CRITERIA.map((criterion) => (
               <fieldset key={criterion.name} className="w-full min-w-0 border-0 p-0">
@@ -248,23 +333,35 @@ export default function ManagerPage() {
           </div>
           <div className="mt-4 flex items-center justify-end gap-2.5 border-t border-[#e5e5e5] bg-[#f5f5f5]/20 p-4">
             {notice && <p className="mr-auto text-sm">{notice}</p>}
+            {!canWrite &&
+              member &&
+              (member.status === "SUBMITTED" || member.status === "OVERDUE") && (
+              <p className="mr-auto text-sm text-[#737373]">
+                {member.status === "OVERDUE"
+                  ? "This evaluation is overdue. HR will follow up."
+                  : "This evaluation is already submitted"}
+              </p>
+            )}
             <Button
               type="button"
               variant="outline"
-              className="h-7.5 cursor-pointer rounded-[10px] border-[#e5e5e5] bg-white px-2.5 text-sm font-medium text-[#0a0a0a]"
-              onClick={() => setNotice("Draft saved")}
+              disabled={!canWrite || saving}
+              className="h-7.5 cursor-pointer rounded-[10px] border-[#e5e5e5] bg-white px-2.5 text-sm font-medium text-[#0a0a0a] disabled:cursor-not-allowed disabled:opacity-50"
+              onClick={() => void saveDraft()}
             >
               Save draft
             </Button>
             <Button
               type="submit"
-              className="h-7.5 cursor-pointer gap-1.5 rounded-[10px] bg-[#f54900] px-2.5 text-sm font-medium text-[#fafafa] hover:bg-[#f54900]/90"
+              disabled={!canWrite || saving}
+              className="h-7.5 cursor-pointer gap-1.5 rounded-[10px] bg-[#f54900] px-2.5 text-sm font-medium text-[#fafafa] hover:bg-[#f54900]/90 disabled:cursor-not-allowed disabled:opacity-50"
             >
               Submit evaluation
               <img src="/icons/submit.svg" alt="" width={16} height={16} />
             </Button>
           </div>
         </form>
+        </fieldset>
           </section>
         </div>
         </div>

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { evaluationSchema, isLenient } from "../src/lib/evaluation-form.ts";
+import { evaluationSchema, draftEvaluationSchema, isLenient } from "../src/lib/evaluation-form.ts";
 
 test("5 and 5 is lenient and needs feedback", () => {
   assert.equal(isLenient({ technical: "5", collaboration: "5" }), true);
@@ -18,6 +18,15 @@ test("5 with 4 or lower on the other criterion is not lenient", () => {
   const parsed = evaluationSchema.safeParse({
     technical: "5",
     collaboration: "4",
+    feedback: "",
+  });
+  assert.equal(parsed.success, true);
+});
+
+test("draft save allows empty feedback with 1-5 ratings", () => {
+  const parsed = draftEvaluationSchema.safeParse({
+    technical: "3",
+    collaboration: "2",
     feedback: "",
   });
   assert.equal(parsed.success, true);

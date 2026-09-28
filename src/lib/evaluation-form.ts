@@ -26,6 +26,13 @@ export const CRITERIA = [
 ] as const;
 
 const rating = z.string().min(1, "Select a rating");
+const ratingOneToFive = z.string().regex(/^[1-5]$/, "Select a rating");
+
+export const draftEvaluationSchema = z.object({
+  technical: ratingOneToFive,
+  collaboration: ratingOneToFive,
+  feedback: z.string(),
+});
 
 export const evaluationSchema = z
   .object({
