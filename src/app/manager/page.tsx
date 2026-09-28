@@ -230,7 +230,7 @@ export default function ManagerPage() {
                   Constructive feedback
                 </label>
                 <span className="text-xs text-[#737373]">
-                  Required for ratings 4–5
+                  Required when both ratings are 5
                 </span>
               </div>
               <Textarea

@@ -38,7 +38,7 @@ export const evaluationSchema = z
     ctx.addIssue({
       code: "custom",
       path: ["feedback"],
-      message: "Required for ratings 4–5",
+      message: "Required when both ratings are 5",
     });
   });
 
@@ -48,7 +48,5 @@ export function isLenient(value: {
   technical?: string;
   collaboration?: string;
 }) {
-  return [value.technical, value.collaboration].some(
-    (score) => Number(score) >= 4,
-  );
+  return value.technical === "5" && value.collaboration === "5";
 }
