@@ -1,8 +1,14 @@
 "use client";
 
-import { LayoutGrid } from "lucide-react";
+import {
+  ClipboardCheck,
+  Clock,
+  LayoutGrid,
+  TriangleAlert,
+  Users,
+} from "lucide-react";
 import axios from "axios";
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { Button } from "@/components/ui/button";
 import { getHrDashboard } from "@/lib/hr-api";
 import type {
@@ -40,6 +46,44 @@ const STATUS_CLASS: Record<EvaluationStatus, string> = {
   SUBMITTED: "border-[#a4f4cf] bg-[#ecfdf5] text-[#007a55]",
   OVERDUE: "border-[#ffccd3] bg-[#fff1f2] text-[#c70036]",
 };
+
+function csvCell(value: string) {
+  if (/[",\n]/.test(value)) {
+    return `"${value.replaceAll('"', '""')}"`;
+  }
+  return value;
+}
+
+function exportTalentCsv(rows: HrDashboard["talent"]) {
+  const header = [
+    "Employee",
+    "Department",
+    "Raw score",
+    "Normalized",
+    "Tier",
+    "Status",
+  ];
+  const lines = [
+    header.join(","),
+    ...rows.map((row) =>
+      [
+        csvCell(row.name),
+        csvCell(row.department),
+        row.rawScore == null ? "" : row.rawScore.toFixed(1),
+        row.normalizedScore == null ? "" : row.normalizedScore.toFixed(2),
+        row.tier ? TIER_LABEL[row.tier] : "",
+        STATUS_LABEL[row.status],
+      ].join(","),
+    ),
+  ];
+  const blob = new Blob([lines.join("\n")], { type: "text/csv;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = "talent-classification.csv";
+  link.click();
+  URL.revokeObjectURL(url);
+}
 
 function formatScore(value: number | null, digits: number) {
   return value == null ? "—" : value.toFixed(digits);
@@ -129,12 +173,14 @@ export default function HrPage() {
               value={kpis?.totalEmployees ?? "—"}
               hint={`Across ${kpis?.departments ?? 0} departments`}
               iconClass="bg-[#fff7ed] text-[#f54900]"
+              icon={<Users className="size-5" strokeWidth={1.67} />}
             />
             <Kpi
               title="Submitted"
               value={kpis?.submitted ?? "—"}
               hint={`${kpis?.completionRate ?? 0}% completion rate`}
               iconClass="bg-[#ecfdf5] text-[#009966]"
+              icon={<ClipboardCheck className="size-5" strokeWidth={1.67} />}
             />
             <Kpi
               title="In progress"
@@ -145,12 +191,14 @@ export default function HrPage() {
                   : "—"
               }
               iconClass="bg-[#fffbeb] text-[#e17100]"
+              icon={<Clock className="size-5" strokeWidth={1.67} />}
             />
             <Kpi
               title="Overdue"
               value={kpis?.overdue ?? "—"}
               hint="Needs your attention"
               iconClass="bg-[#fff1f2] text-[#ec003f]"
+              icon={<TriangleAlert className="size-5" strokeWidth={1.67} />}
             />
           </div>
           {kpis && kpis.overdue > 0 && (
@@ -293,7 +341,13 @@ export default function HrPage() {
               <Button
                 type="button"
                 variant="outline"
-                className="h-6.5 cursor-pointer rounded-lg border-[#e5e5e5] text-xs font-medium text-[#0a0a0a]"
+                disabled={!data}
+                className="h-6.5 cursor-pointer rounded-lg border-[#e5e5e5] text-xs font-medium text-[#0a0a0a] disabled:cursor-not-allowed"
+                onClick={() => {
+                  if (data) {
+                    exportTalentCsv(data.talent);
+                  }
+                }}
               >
                 Export report
               </Button>
@@ -361,11 +415,13 @@ function Kpi({
   value,
   hint,
   iconClass,
+  icon,
 }: {
   title: string;
   value: string | number;
   hint: string;
   iconClass: string;
+  icon: ReactNode;
 }) {
   return (
     <div className={`${CARD} flex items-start justify-between p-5`}>
@@ -376,7 +432,11 @@ function Kpi({
         </p>
         <p className="text-xs text-[#737373]">{hint}</p>
       </div>
-      <div className={`flex size-10 items-center justify-center rounded-[14px] ${iconClass}`} />
+      <div
+        className={`flex size-10 shrink-0 items-center justify-center rounded-[14px] p-2.5 ${iconClass}`}
+      >
+        {icon}
+      </div>
     </div>
   );
 }
