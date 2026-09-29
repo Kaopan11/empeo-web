@@ -49,7 +49,13 @@ export interface Review {
 }
 
 export interface HrDashboard {
-  cycle: { id: string; name: string; endDate: string };
+  cycle: {
+    id: string;
+    name: string;
+    endDate: string;
+    status: string;
+    publishedAt: string | null;
+  };
   kpis: {
     totalEmployees: number;
     departments: number;
@@ -84,4 +90,33 @@ export interface HrDashboard {
     tier: PerformanceTier | null;
     status: EvaluationStatus;
   }[];
+}
+
+export type EmployeeReviewGate =
+  | "waiting_publish"
+  | "waiting_submit"
+  | "visible";
+
+export interface MeReview {
+  published: boolean;
+  publishedAt: string | null;
+  gate: EmployeeReviewGate;
+  cycleName: string;
+  employeeName: string;
+  reviewer: { name: string; department: string } | null;
+  evaluation: {
+    totalRawScore: number;
+    tier: PerformanceTier | null;
+    submittedAt: string | null;
+  } | null;
+  scores: { criteriaName: string; score: number }[] | null;
+  companyAverage: number | null;
+  feedback: string | null;
+}
+
+export interface CycleStatus {
+  id: string;
+  name: string;
+  status: string;
+  publishedAt: string | null;
 }

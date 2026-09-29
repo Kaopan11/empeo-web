@@ -35,17 +35,33 @@ export const ACTORS: Actor[] = [
     initials: "AL",
     department: "Engineering",
   },
+  {
+    id: "a1000000-0000-4000-8000-000000000021",
+    name: "Ivy",
+    role: "Employee",
+    initials: "IV",
+    department: "Sales",
+  },
+  {
+    id: "a1000000-0000-4000-8000-000000000018",
+    name: "Hiro",
+    role: "Employee",
+    initials: "HI",
+    department: "Engineering",
+  },
 ];
 
-const STORAGE_KEY = "empeo-user-id";
+export const ACTOR_GROUPS: { label: string; roles: Actor["role"][] }[] = [
+  { label: "HR Views", roles: ["HR"] },
+  { label: "Manager Views", roles: ["Manager"] },
+  { label: "Employee Views", roles: ["Employee"] },
+];
 
 export function actorById(id: string | null): Actor {
   return ACTORS.find((actor) => actor.id === id) ?? ACTORS[0];
 }
 
-let currentId = actorById(
-  typeof localStorage === "undefined" ? null : localStorage.getItem(STORAGE_KEY),
-).id;
+let currentId = ACTORS[0].id;
 
 export function currentUserId() {
   return currentId;
@@ -54,10 +70,5 @@ export function currentUserId() {
 export function selectActor(id: string) {
   const actor = actorById(id);
   currentId = actor.id;
-  localStorage.setItem(STORAGE_KEY, actor.id);
   return actor;
-}
-
-export function loadActor() {
-  return selectActor(localStorage.getItem(STORAGE_KEY) ?? "");
 }
