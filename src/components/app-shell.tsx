@@ -4,6 +4,7 @@ import { ChevronDownIcon } from "lucide-react";
 import { useRouter } from "next/navigation";
 import {
   createContext,
+  useCallback,
   useContext,
   useEffect,
   useState,
@@ -12,20 +13,25 @@ import {
 import {
   DropdownMenu,
   DropdownMenuContent,
+  DropdownMenuGroup,
   DropdownMenuItem,
+  DropdownMenuLabel,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import "@/lib/api";
+import { getCycle } from "@/lib/hr-api";
 import {
+  ACTOR_GROUPS,
   ACTORS,
   type Actor,
-  loadActor,
   selectActor,
 } from "@/lib/role-switcher";
 
 const RoleSwitcherContext = createContext<{
   actor: Actor;
   select: (id: string) => void;
+  cyclePublished: boolean;
+  reloadCycle: () => Promise<void>;
 } | null>(null);
 
 export function useRoleSwitcher() {
@@ -35,17 +41,34 @@ export function useRoleSwitcher() {
 }
 
 function RoleSwitcherProvider({ children }: { children: ReactNode }) {
+  const router = useRouter();
   const [actor, setActor] = useState(ACTORS[0]);
+  const [cyclePublished, setCyclePublished] = useState(false);
+
+  const reloadCycle = useCallback(async () => {
+    try {
+      const cycle = await getCycle();
+      setCyclePublished(cycle.status === "PUBLISHED");
+    } catch {
+      setCyclePublished(false);
+    }
+  }, []);
 
   useEffect(() => {
-    setActor(loadActor());
-  }, []);
+    setActor(selectActor(ACTORS[0].id));
+    if (window.location.pathname !== "/hr") {
+      router.replace("/hr");
+    }
+    void reloadCycle();
+  }, [reloadCycle, router]);
 
   return (
     <RoleSwitcherContext.Provider
       value={{
         actor,
         select: (id) => setActor(selectActor(id)),
+        cyclePublished,
+        reloadCycle,
       }}
     >
       {children}
@@ -61,8 +84,7 @@ function pageFor(role: Actor["role"]) {
 
 function Header() {
   const router = useRouter();
-  const { actor, select } = useRoleSwitcher();
-  const sharedRole = ACTORS.filter((person) => person.role === actor.role).length > 1;
+  const { actor, select, cyclePublished } = useRoleSwitcher();
 
   return (
     <header className="border-b border-[#e5e5e5] bg-white/95 backdrop-blur-sm">
@@ -88,24 +110,31 @@ function Header() {
         <div className="flex items-center gap-3">
           <div className="flex items-center gap-2 rounded-[10px] border border-[#e5e5e5] bg-[#f5f5f5]/40 px-3 py-1.5 text-xs font-normal text-[#737373]">
             <span className="size-2 rounded-full bg-[#00bc7d]" />
-            Cycle active
+            {cyclePublished ? "Cycle published" : "Cycle active"}
           </div>
           <DropdownMenu>
             <DropdownMenuTrigger className="flex h-8 w-56 cursor-pointer items-center justify-between rounded-[10px] border border-[#e5e5e5]/70 bg-white px-2.5 text-xs font-normal text-[#0a0a0a] shadow-sm outline-none">
-              {sharedRole ? `${actor.role} · ${actor.name}` : actor.role}
+              {`${actor.role} · ${actor.name}`}
               <ChevronDownIcon className="size-4 text-[#737373]" />
             </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="w-56">
-              {ACTORS.map((option) => (
-                <DropdownMenuItem
-                  key={option.id}
-                  onClick={() => {
-                    select(option.id);
-                    router.push(pageFor(option.role));
-                  }}
-                >
-                  {option.role} · {option.name}
-                </DropdownMenuItem>
+            <DropdownMenuContent align="end" className="w-64">
+              {ACTOR_GROUPS.map((group) => (
+                <DropdownMenuGroup key={group.label}>
+                  <DropdownMenuLabel>{group.label}</DropdownMenuLabel>
+                  {ACTORS.filter((person) => group.roles.includes(person.role)).map(
+                    (option) => (
+                      <DropdownMenuItem
+                        key={option.id}
+                        onClick={() => {
+                          select(option.id);
+                          router.push(pageFor(option.role));
+                        }}
+                      >
+                        {option.name}
+                      </DropdownMenuItem>
+                    ),
+                  )}
+                </DropdownMenuGroup>
               ))}
             </DropdownMenuContent>
           </DropdownMenu>

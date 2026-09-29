@@ -18,7 +18,8 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { getHrDashboard, resolveOverdue } from "@/lib/hr-api";
+import { getHrDashboard, publishCycle, resolveOverdue } from "@/lib/hr-api";
+import { useRoleSwitcher } from "@/components/app-shell";
 import type {
   BiasLabel,
   EvaluationStatus,
@@ -185,16 +186,19 @@ function managerRowClass(label: BiasLabel) {
 }
 
 export default function HrPage() {
+  const { reloadCycle } = useRoleSwitcher();
   const [data, setData] = useState<HrDashboard | null>(null);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
   const [resolving, setResolving] = useState(false);
+  const [publishing, setPublishing] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
     setError("");
     try {
       setData(await getHrDashboard());
+      await reloadCycle();
     } catch (err: unknown) {
       setError(
         axios.isAxiosError(err)
@@ -204,7 +208,7 @@ export default function HrPage() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [reloadCycle]);
 
   useEffect(() => {
     void load();
@@ -212,6 +216,7 @@ export default function HrPage() {
 
   const kpis = data?.kpis;
   const dist = data?.distribution;
+  const published = data?.cycle.status === "PUBLISHED";
 
   return (
     <main className="flex-1 bg-[#fff7ed]/20 px-8 py-8">
@@ -249,9 +254,32 @@ export default function HrPage() {
               </Button>
               <Button
                 type="button"
-                className="h-7.5 cursor-pointer rounded-[10px] bg-[#f54900] px-2.5 text-sm font-medium text-[#fafafa] hover:bg-[#f54900]/90"
+                disabled={loading || resolving || publishing || !data}
+                className="h-7.5 cursor-pointer rounded-[10px] bg-[#f54900] px-2.5 text-sm font-medium text-[#fafafa] hover:bg-[#f54900]/90 disabled:cursor-not-allowed"
+                onClick={async () => {
+                  setPublishing(true);
+                  setError("");
+                  try {
+                    await publishCycle(!published);
+                    await load();
+                  } catch (err: unknown) {
+                    setError(
+                      axios.isAxiosError(err)
+                        ? String(err.response?.data?.error ?? err.message)
+                        : "Could not update publish state",
+                    );
+                  } finally {
+                    setPublishing(false);
+                  }
+                }}
               >
-                Publish cycle
+                {publishing
+                  ? published
+                    ? "Unpublishing…"
+                    : "Publishing…"
+                  : published
+                    ? "Unpublish"
+                    : "Publish cycle"}
               </Button>
             </div>
           </div>
