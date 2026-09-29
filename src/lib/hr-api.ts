@@ -11,3 +11,10 @@ export async function getHrDashboard(cycleId = ACTIVE_CYCLE_ID) {
   );
   return data;
 }
+
+export async function resolveOverdue(cycleId = ACTIVE_CYCLE_ID) {
+  const { data } = await api.post<{ unlocked: number; submitted: number }>(
+    `${apiBaseUrl()}/api/cycles/${cycleId}/resolve-overdue`,
+  );
+  return data;
+}

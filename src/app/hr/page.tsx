@@ -3,14 +3,22 @@
 import {
   ClipboardCheck,
   Clock,
+  Ellipsis,
   LayoutGrid,
   TriangleAlert,
   Users,
 } from "lucide-react";
 import axios from "axios";
-import { useEffect, useState, type ReactNode } from "react";
+import Link from "next/link";
+import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { Button } from "@/components/ui/button";
-import { getHrDashboard } from "@/lib/hr-api";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { getHrDashboard, resolveOverdue } from "@/lib/hr-api";
 import type {
   BiasLabel,
   EvaluationStatus,
@@ -85,6 +93,65 @@ function exportTalentCsv(rows: HrDashboard["talent"]) {
   URL.revokeObjectURL(url);
 }
 
+function exportFairnessPng(dist: HrDashboard["distribution"]) {
+  const width = 640;
+  const height = 360;
+  const canvas = document.createElement("canvas");
+  canvas.width = width;
+  canvas.height = height;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) {
+    return;
+  }
+  ctx.fillStyle = "#ffffff";
+  ctx.fillRect(0, 0, width, height);
+  ctx.fillStyle = "#0a0a0a";
+  ctx.font = "600 16px sans-serif";
+  ctx.fillText("Fairness & distribution", 24, 36);
+  const bars = [
+    { label: "Low", percent: dist.low.percent, color: "#ffd6a7" },
+    { label: "Core", percent: dist.core.percent, color: "#ff8904" },
+    { label: "High", percent: dist.high.percent, color: "#ffd6a7" },
+  ];
+  const barW = 120;
+  const gap = 40;
+  const startX = (width - (barW * 3 + gap * 2)) / 2;
+  const maxH = 180;
+  bars.forEach((bar, i) => {
+    const h = Math.max(8, (bar.percent / 100) * maxH);
+    const x = startX + i * (barW + gap);
+    const y = 250 - h;
+    ctx.fillStyle = bar.color;
+    ctx.fillRect(x, y, barW, h);
+    ctx.fillStyle = "#0a0a0a";
+    ctx.font = "600 12px sans-serif";
+    ctx.textAlign = "center";
+    ctx.fillText(bar.label, x + barW / 2, 270);
+    ctx.fillStyle = "#737373";
+    ctx.font = "12px sans-serif";
+    ctx.fillText(`${bar.percent}%`, x + barW / 2, 288);
+  });
+  ctx.textAlign = "left";
+  ctx.fillStyle = "#737373";
+  ctx.font = "12px sans-serif";
+  const z =
+    dist.averageNormalized == null ? "—" : dist.averageNormalized.toFixed(2);
+  const sigma =
+    dist.calibrationSpread == null ? "—" : dist.calibrationSpread.toFixed(2);
+  ctx.fillText(`z ${z}  σ ${sigma}  confidence ${dist.confidence}%`, 24, 336);
+  canvas.toBlob((blob) => {
+    if (!blob) {
+      return;
+    }
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = "fairness-distribution.png";
+    link.click();
+    URL.revokeObjectURL(url);
+  }, "image/png");
+}
+
 function formatScore(value: number | null, digits: number) {
   return value == null ? "—" : value.toFixed(digits);
 }
@@ -120,18 +187,28 @@ function managerRowClass(label: BiasLabel) {
 export default function HrPage() {
   const [data, setData] = useState<HrDashboard | null>(null);
   const [error, setError] = useState("");
+  const [loading, setLoading] = useState(true);
+  const [resolving, setResolving] = useState(false);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    setError("");
+    try {
+      setData(await getHrDashboard());
+    } catch (err: unknown) {
+      setError(
+        axios.isAxiosError(err)
+          ? String(err.response?.data?.error ?? err.message)
+          : "Could not load the dashboard",
+      );
+    } finally {
+      setLoading(false);
+    }
+  }, []);
 
   useEffect(() => {
-    getHrDashboard()
-      .then(setData)
-      .catch((err: unknown) => {
-        setError(
-          axios.isAxiosError(err)
-            ? String(err.response?.data?.error ?? err.message)
-            : "Could not load the dashboard",
-        );
-      });
-  }, []);
+    void load();
+  }, [load]);
 
   const kpis = data?.kpis;
   const dist = data?.distribution;
@@ -160,12 +237,23 @@ export default function HrPage() {
                 distribution across the organization.
               </p>
             </div>
-            <Button
-              type="button"
-              className="h-7.5 cursor-pointer rounded-[10px] bg-[#f54900] px-2.5 text-sm font-medium text-[#fafafa] hover:bg-[#f54900]/90"
-            >
-              Publish cycle
-            </Button>
+            <div className="flex items-center gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                disabled={loading || resolving}
+                className="h-7.5 cursor-pointer rounded-[10px] border-[#e5e5e5] px-2.5 text-sm font-medium text-[#0a0a0a] disabled:cursor-not-allowed"
+                onClick={() => void load()}
+              >
+                {loading ? "Refreshing…" : "Refresh"}
+              </Button>
+              <Button
+                type="button"
+                className="h-7.5 cursor-pointer rounded-[10px] bg-[#f54900] px-2.5 text-sm font-medium text-[#fafafa] hover:bg-[#f54900]/90"
+              >
+                Publish cycle
+              </Button>
+            </div>
           </div>
           <div className="grid grid-cols-4 gap-4">
             <Kpi
@@ -215,21 +303,60 @@ export default function HrPage() {
               <Button
                 type="button"
                 variant="outline"
-                className="h-7 cursor-pointer rounded-lg border-[#ffd230] bg-transparent text-xs font-medium text-[#7b3306]"
+                disabled={resolving || loading}
+                className="h-7 cursor-pointer rounded-lg border-[#ffd230] bg-transparent text-xs font-medium text-[#7b3306] disabled:cursor-not-allowed"
+                onClick={async () => {
+                  setResolving(true);
+                  setError("");
+                  try {
+                    await resolveOverdue();
+                    await load();
+                  } catch (err: unknown) {
+                    setError(
+                      axios.isAxiosError(err)
+                        ? String(err.response?.data?.error ?? err.message)
+                        : "Could not resolve overdue reviews",
+                    );
+                  } finally {
+                    setResolving(false);
+                  }
+                }}
               >
-                Resolve overdue
+                {resolving ? "Resolving…" : "Resolve overdue"}
               </Button>
             </div>
           )}
           <div className="grid grid-cols-[1fr_380px] items-start gap-4">
             <section className={`${CARD} flex flex-col gap-4 py-4`}>
-              <div className="px-4">
-                <h2 className="text-base leading-6 font-medium text-[#0a0a0a]">
-                  Fairness & distribution
-                </h2>
-                <p className="text-sm leading-5 text-[#737373]">
-                  Normalized score distribution across all completed reviews.
-                </p>
+              <div className="flex items-start justify-between px-4">
+                <div>
+                  <h2 className="text-base leading-6 font-medium text-[#0a0a0a]">
+                    Fairness & distribution
+                  </h2>
+                  <p className="text-sm leading-5 text-[#737373]">
+                    Normalized score distribution across all completed reviews.
+                  </p>
+                </div>
+                <DropdownMenu>
+                  <DropdownMenuTrigger
+                    className="flex size-8 shrink-0 cursor-pointer items-center justify-center rounded-[10px] border border-transparent text-[#0a0a0a] outline-none hover:bg-[#f5f5f5]"
+                    aria-label="More options"
+                  >
+                    <Ellipsis className="size-4" strokeWidth={1.67} />
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end" className="min-w-40">
+                    <DropdownMenuItem
+                      disabled={!dist}
+                      onClick={() => {
+                        if (dist) {
+                          exportFairnessPng(dist);
+                        }
+                      }}
+                    >
+                      Export image
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
               </div>
               <div className="flex flex-col gap-5 px-4">
                 <div className="flex flex-col gap-5 rounded-[14px] border border-[#e5e5e5] bg-[#f5f5f5]/20 p-5">
@@ -318,13 +445,12 @@ export default function HrPage() {
                     </div>
                   </div>
                 ))}
-                <Button
-                  type="button"
-                  variant="outline"
-                  className="h-7.5 w-full cursor-pointer rounded-[10px] border-[#e5e5e5] text-sm font-medium text-[#0a0a0a]"
+                <Link
+                  href="/hr/calibration-guide"
+                  className="inline-flex h-7.5 w-full cursor-pointer items-center justify-center rounded-[10px] border border-[#e5e5e5] bg-white text-sm font-medium text-[#0a0a0a] hover:bg-[#f5f5f5]"
                 >
                   Open calibration guide
-                </Button>
+                </Link>
               </div>
             </section>
           </div>
